@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="hy">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Լրտես P2P PRO</title>
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    <style>
+        :root { --bg: #0f172a; --card: #1e293b; --accent: #38bdf8; --kill: #ef4444; --text: #f8fafc; }
+        body { font-family: 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); text-align: center; padding: 20px; margin: 0; }
+        .container { max-width: 450px; margin: auto; background: var(--card); padding: 25px; border-radius: 24px; box-shadow: 0 20px 50px rgba(0,0,0,0.5); }
+        input, select { width: 100%; padding: 12px; margin: 10px 0; border-radius: 12px; border: 1px solid #334155; background: #0f172a; color: white; box-sizing: border-box; font-size: 16px; }
+        button { width: 100%; padding: 14px; margin: 8px 0; border-radius: 12px; border: none; cursor: pointer; font-weight: bold; transition: 0.3s; font-size: 16px; }
+        .btn-main { background: var(--accent); color: #0f172a; }
+        .btn-sec { background: #334155; color: white; }
+        .btn-kick { width: auto; padding: 5px 10px; background: var(--kill); font-size: 12px; margin-left: 5px; }
+        #role-box { font-size: 1.4rem; color: #fbbf24; border: 2px dashed #334155; padding: 20px; margin: 20px 0; border-radius: 16px; background: rgba(0,0,0,0.2); }
+        .player-item, .word-item { display: flex; justify-content: space-between; align-items: center; background: #334155; padding: 10px; margin: 6px 0; border-radius: 10px; font-size: 14px; }
+        .badge { background: var(--accent); color: #0f172a; padding: 2px 8px; border-radius: 5px; font-size: 12px; margin-bottom: 10px; display: inline-block; }
+        #word-editor { display: none; background: #0f172a; padding: 15px; border-radius: 15px; margin-top: 15px; max-height: 200px; overflow-y: auto; text-align: left; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>🕵️ ԼՐՏԵՍ</h1>
+    
+    <div id="view-setup">
+        <input type="text" id="name-input" placeholder="Քո անունը">
+        <button class="btn-main" onclick="initHost()">Ստեղծել նոր սենյակ</button>
+        <div style="margin: 15px 0; opacity: 0.5;">ԿԱՄ</div>
+        <input type="text" id="join-id-input" placeholder="Մուտքագրեք 6-նիշանոց ID-ն">
+        <button class="btn-sec" onclick="initClient()">Մուտք գործել ID-ով</button>
+    </div>
+
+    <div id="view-lobby" style="display:none;">
+        <div id="role-box">Սպասում ենք սկզբին...</div>
+        <div id="topic-display" class="badge">Թեմա. Վայրեր</div>
+
+        <div id="host-controls" style="display:none;">
+            <select id="topic-select" onchange="changeTopic()">
+                <option value="places">Վայրեր</option>
+                <option value="countries">Երկրներ</option>
+                <option value="people">Մարդիկ</option>
+                <option value="items">Առարկաներ</option>
+                <option value="adult">18+</option>
+            </select>
+            <button class="btn-sec" onclick="toggleWordEditor()">📝 Խմբագրել բառերը</button>
+            <div id="word-editor"></div>
+            
+            <button class="btn-main" onclick="startGame()">ԲԱԺԱՆԵԼ ԴԵՐԵՐԸ</button>
+            <button class="btn-sec" onclick="resetGame()">ԱՎԱՐՏԵԼ ԽԱՂԸ</button>
+        </div>
+
+        <p id="room-id-display" onclick="copyId()" style="cursor:pointer; color: var(--accent); font-weight: bold; font-size: 1.2rem;"></p>
+        <div id="player-list"></div>
+    </div>
+</div>
+
+<script>
+    const database = {
+        places: ["Դպրոց", "Հիվանդանոց", "Տիեզերք", "Սուզանավ", "Կրկես", "Թանգարան", "Ռեստորան", "Օդանավակայան", "Բանակ","Արամի տուն","Կարենի տուն","Դոդո պիցցա","Ղուկասյանի Սադ","Պլեյստեյշնոց","Կոմպնոց"],
+        countries: ["Հայաստան", "Ռուսաստան", "ԱՄՆ", "Ճապոնիա", "Եգիպտոս", "Ֆրանսիա", "Իտալիա", "Էմիրատներ", "Չինաստան"],
+        people: ["Նիկոլ", "Բժիշկ", "Ոստիկան", "Արամ", "Կարեն", "Նարեկ", "Սևակ", "Վարդան Ղուկասյան"],
+        items: ["Հեռախոս", "Փող", "Թավա", "Էլեկտրական սղոց", "Հայելի", "Մանրադիտակ","Համակարգիչ"],
+        adult: ["Բոզնոց", "Գիշերային ակումբ", "Ստրիպտիզ-բար", "Կազինո", "Վիշկի Աննայի տուն", "Նարեկի ընկերների գառաժ","23 դպրոցի զուգարան","Նարեկի չաստ","Արամի զոմբի ապակալիպսիսի տուն"]
+    };
+
+    let peer = null, connMap = {}, myName = "", isHost = false, currentTopic = "places";
+
+    function generateShortId() { return Math.random().toString(36).substring(2, 8).toUpperCase(); }
+
+    function initHost() {
+        myName = document.getElementById('name-input').value || "Ադմին";
+        peer = new Peer(generateShortId());
+        peer.on('open', (id) => {
+            isHost = true;
+            document.getElementById('room-id-display').innerText = "ID. " + id;
+            showLobby(); updatePlayerList(); renderWordEditor();
+        });
+        peer.on('error', (err) => { if(err.type === 'unavailable-id') initHost(); else alert("Սխալ. " + err.type); });
+        peer.on('connection', (conn) => {
+            conn.on('open', () => {
+                conn.on('data', (data) => {
+                    if (data.type === 'join') {
+                        connMap[conn.peer] = { conn: conn, name: data.name };
+                        updatePlayerList();
+                        broadcast({ type: 'list', list: getNames(), topic: getTopicName(currentTopic) });
+                    }
+                });
+            });
+        });
+    }
+
+    function initClient() {
+        myName = document.getElementById('name-input').value || "Խաղացող";
+        const targetId = document.getElementById('join-id-input').value.toUpperCase();
+        peer = new Peer();
+        peer.on('open', () => {
+            const conn = peer.connect(targetId);
+            conn.on('open', () => { conn.send({ type: 'join', name: myName }); showLobby(); });
+            conn.on('data', (data) => {
+                if (data.type === 'role') document.getElementById('role-box').innerText = data.val;
+                if (data.type === 'list') { updateClientList(data.list); document.getElementById('topic-display').innerText = "Թեմա. " + data.topic; }
+                if (data.type === 'reset') document.getElementById('role-box').innerText = "Սպասում...";
+                if (data.type === 'kick') { alert("Հեռացված եք"); location.reload(); }
+            });
+        });
+    }
+
+    function toggleWordEditor() {
+        const editor = document.getElementById('word-editor');
+        editor.style.display = editor.style.display === 'none' ? 'block' : 'none';
+    }
+
+    function renderWordEditor() {
+        const editor = document.getElementById('word-editor');
+        const words = database[currentTopic];
+        editor.innerHTML = `<b>${getTopicName(currentTopic)} բառերը:</b>
+`;
+        words.forEach((word, index) => {
+            editor.innerHTML += `
+                <div class="word-item">
+                    ${word} 
+                    <button class="btn-kick" onclick="deleteWord(${index})">🗑️</button>
+                </div>`;
+        });
+    }
+
+    function deleteWord(index) {
+        if (database[currentTopic].length <= 1) return alert("Չի կարելի ջնջել վերջին բառը:");
+        database[currentTopic].splice(index, 1);
+        renderWordEditor();
+    }
+
+    function changeTopic() {
+        currentTopic = document.getElementById('topic-select').value;
+        renderWordEditor();
+        const tName = getTopicName(currentTopic);
+        document.getElementById('topic-display').innerText = "Թեմա. " + tName;
+        broadcast({ type: 'list', list: getNames(), topic: tName });
+    }
+
+    function startGame() {
+        const pool = database[currentTopic];
+        const word = pool[Math.floor(Math.random() * pool.length)];
+        const ids = Object.keys(connMap);
+        const spyIdx = Math.floor(Math.random() * (ids.length + 1));
+        const myRole = (spyIdx === ids.length) ? "Դու ԼՐՏԵՍ ես: 🕵️" : "Բառը. " + word;
+        document.getElementById('role-box').innerText = myRole;
+        ids.forEach((id, i) => {
+            connMap[id].conn.send({ type: 'role', val: (i === spyIdx ? "Դու ԼՐՏԵՍ ես: 🕵️" : "Բառը. " + word) });});
+    }
+
+    function showLobby() {
+        document.getElementById('view-setup').style.display = 'none';
+        document.getElementById('view-lobby').style.display = 'block';
+        if (isHost) document.getElementById('host-controls').style.display = 'block';
+    }
+
+    function updatePlayerList() {
+        const listDiv = document.getElementById('player-list');
+        listDiv.innerHTML = `<div class="player-item"><b>👑 ${myName}</b></div>`;
+        for (let id in connMap) listDiv.innerHTML += `<div class="player-item">${connMap[id].name} <button class="btn-kick" onclick="kick('${id}')">❌</button></div>`;
+    }
+
+    function updateClientList(list) {
+        document.getElementById('player-list').innerHTML = list.map((n, i) => `<div class="player-item">${i===0?'👑 ':''}${n}</div>`).join('');
+    }
+
+    function kick(id) {
+        connMap[id].conn.send({type: 'kick'});
+        connMap[id].conn.close(); delete connMap[id];
+        updatePlayerList(); broadcast({ type: 'list', list: getNames(), topic: getTopicName(currentTopic) });
+    }
+
+    function broadcast(data) { Object.values(connMap).forEach(p => p.conn.send(data)); }
+    function resetGame() { document.getElementById('role-box').innerText = "Սպասում..."; broadcast({ type: 'reset' }); }
+    function getNames() { return [myName, ...Object.values(connMap).map(c => c.name)]; }
+    function getTopicName(v) { 
+        const sel = document.getElementById('topic-select');
+        return sel.options[sel.selectedIndex].text;
+    }
+    function copyId() {
+        const id = document.getElementById('room-id-display').innerText.split(". ")[1];
+        navigator.clipboard.writeText(id); alert("ID " + id + " պատճենվեց:");
+    }
+</script>
+</body>
+</html>
