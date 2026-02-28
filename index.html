@@ -57,36 +57,56 @@
     </div>
 </div>
 
-<script>
+        <script>
     const database = {
         places: ["Դպրոց", "Հիվանդանոց", "Տիեզերք", "Սուզանավ", "Կրկես", "Թանգարան", "Ռեստորան", "Օդանավակայան", "Բանակ","Արամի տուն","Կարենի տուն","Դոդո պիցցա","Ղուկասյանի Սադ","Պլեյստեյշնոց","Կոմպնոց"],
         countries: ["Հայաստան", "Ռուսաստան", "ԱՄՆ", "Ճապոնիա", "Եգիպտոս", "Ֆրանսիա", "Իտալիա", "Էմիրատներ", "Չինաստան"],
         people: ["Նիկոլ", "Բժիշկ", "Ոստիկան", "Արամ", "Կարեն", "Նարեկ", "Սևակ", "Վարդան Ղուկասյան"],
         items: ["Հեռախոս", "Փող", "Թավա", "Էլեկտրական սղոց", "Հայելի", "Մանրադիտակ","Համակարգիչ"],
-        adult: ["Բոզնոց", "Գիշերային ակումբ", "Ստրիպտիզ-բար", "Կազինո", "Վիշկի Աննայի տուն", "Նարեկի ընկերների գառաժ","23 դպրոցի զուգարան","Նարեկի չաստ","Արամի զոմբի ապակալիպսիսի տուն","PornHub","Բոզ","Թաթայի համերգ","Զինկոմ"]
+        adult: ["Բոզնոց", "Գիշերային ակումբ", "Ստրիպտիզ-բար", "Կազինո", "Վիշկի Աննայի տուն", "Նարեկի ընկերների գառաժ","23 դպրոցի զուգարան","Նարեկի չաստ","Արամի զոմբի ապակալիպսիսի տուն","PornHub","Բոզ","Թաթայի համերգ","Զինկոմ","Էպշտեյնի կղզի"]
     };
 
     let peer = null, connMap = {}, myName = "", isHost = false, currentTopic = "places";
+
+    // Настройки для обхода блокировок интернета (STUN + TURN)
+    const peerConfig = {
+        config: {
+            iceServers: [
+                { urls: 'stun:stun.l.google.com:19302' },
+                { urls: 'stun:global.stun.twilio.com:3478' },
+                // Бесплатные TURN серверы от OpenRelay
+                {
+                    urls: 'turn:openrelay.metered.ca:443',
+                    username: 'openrelayproject',
+                    credential: 'openrelayproject'
+                },
+                {
+                    urls: 'turn:openrelay.metered.ca:80',
+                    username: 'openrelayproject',
+                    credential: 'openrelayproject'
+                }
+            ]
+        }
+    };
 
     function generateShortId() { return Math.random().toString(36).substring(2, 8).toUpperCase(); }
 
     function initHost() {
         myName = document.getElementById('name-input').value || "Ադմին";
-        peer = new Peer(generateShortId(), {
-        config: {
-            'iceServers': [
-                { urls: 'stun:stun.l.google.com:19302' },
-                { urls: 'stun:stun1.l.google.com:19302' },
-                { urls: 'stun:stun2.l.google.com:19302' }
-            ]
-        }
-    });
+        peer = new Peer(generateShortId(), peerConfig);
+        
         peer.on('open', (id) => {
             isHost = true;
             document.getElementById('room-id-display').innerText = "ID. " + id;
             showLobby(); updatePlayerList(); renderWordEditor();
         });
-        peer.on('error', (err) => { if(err.type === 'unavailable-id') initHost(); else alert("Սխալ. " + err.type); });
+
+        peer.on('error', (err) => { 
+            console.error(err);
+            if(err.type === 'unavailable-id') initHost(); 
+            else alert("Сетевая ошибка: " + err.type); 
+        });
+
         peer.on('connection', (conn) => {
             conn.on('open', () => {
                 conn.on('data', (data) => {
@@ -103,24 +123,23 @@
     function initClient() {
         myName = document.getElementById('name-input').value || "Խաղացող";
         const targetId = document.getElementById('join-id-input').value.toUpperCase();
-        peer = new Peer({
-        config: {
-            'iceServers': [
-                { urls: 'stun:stun.l.google.com:19302' },
-                { urls: 'stun:stun1.l.google.com:19302' },
-                { urls: 'stun:stun2.l.google.com:19302' }
-            ]
-        }
-    });
+        if (!targetId) return alert("Введите ID!");
+        
+        peer = new Peer(peerConfig);
+        
         peer.on('open', () => {
-            const conn = peer.connect(targetId);
-            conn.on('open', () => { conn.send({ type: 'join', name: myName }); showLobby(); });
+            const conn = peer.connect(targetId, { reliable: true });
+            conn.on('open', () => { 
+                conn.send({ type: 'join', name: myName }); 
+                showLobby(); 
+            });
             conn.on('data', (data) => {
                 if (data.type === 'role') document.getElementById('role-box').innerText = data.val;
                 if (data.type === 'list') { updateClientList(data.list); document.getElementById('topic-display').innerText = "Թեմա. " + data.topic; }
                 if (data.type === 'reset') document.getElementById('role-box').innerText = "Սպասում...";
                 if (data.type === 'kick') { alert("Հեռացված եք"); location.reload(); }
             });
+            conn.on('error', (err) => alert("Ошибка соединения: " + err));
         });
     }
 
@@ -132,8 +151,7 @@
     function renderWordEditor() {
         const editor = document.getElementById('word-editor');
         const words = database[currentTopic];
-        editor.innerHTML = `<b>${getTopicName(currentTopic)} բառերը:</b>
-`;
+        editor.innerHTML = `<b>${getTopicName(currentTopic)} բառերը:</b><br>`;
         words.forEach((word, index) => {
             editor.innerHTML += `
                 <div class="word-item">
@@ -198,9 +216,10 @@
         return sel.options[sel.selectedIndex].text;
     }
     function copyId() {
-        const id = document.getElementById('room-id-display').innerText.split(". ")[1];
-        navigator.clipboard.writeText(id); alert("ID " + id + " պատճենվեց:");
+        const idText = document.getElementById('room-id-display').innerText;
+        const id = idText.includes(". ") ? idText.split(". ")[1] : idText;
+        navigator.clipboard.writeText(id).then(() => alert("ID " + id + " պատճենվեց:"));
     }
-</script>
+                </script>
 </body>
 </html>
