@@ -72,7 +72,15 @@
 
     function initHost() {
         myName = document.getElementById('name-input').value || "Ադմին";
-        peer = new Peer(generateShortId());
+        peer = new Peer(generateShortId(), {
+        config: {
+            'iceServers': [
+                { urls: 'stun:stun.l.google.com:19302' },
+                { urls: 'stun:stun1.l.google.com:19302' },
+                { urls: 'stun:stun2.l.google.com:19302' }
+            ]
+        }
+    });
         peer.on('open', (id) => {
             isHost = true;
             document.getElementById('room-id-display').innerText = "ID. " + id;
@@ -95,7 +103,15 @@
     function initClient() {
         myName = document.getElementById('name-input').value || "Խաղացող";
         const targetId = document.getElementById('join-id-input').value.toUpperCase();
-        peer = new Peer();
+        peer = new Peer({
+        config: {
+            'iceServers': [
+                { urls: 'stun:stun.l.google.com:19302' },
+                { urls: 'stun:stun1.l.google.com:19302' },
+                { urls: 'stun:stun2.l.google.com:19302' }
+            ]
+        }
+    });
         peer.on('open', () => {
             const conn = peer.connect(targetId);
             conn.on('open', () => { conn.send({ type: 'join', name: myName }); showLobby(); });
